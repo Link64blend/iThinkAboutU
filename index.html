@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+
+<link rel="stylesheet" href="styles.css">
+<body>
+
+<div>
+    <h1>Thinking 'bout U</h1>
+    <p id="p_characterTag"></p>
+
+    <div class="crop">
+        <div id="div_stage" class="stage">
+            <img id="img_char">
+            <img id="img_hand" src="pat-pat-pet-pet.gif">
+            <button id="btn_ping_top" class="spot" style="left:0%; top:0; width:100%; height:50%"></button>
+            <button id="btn_ping_bottom" class="spot" style="right:0; bottom:0; width:100%; height:50%"></button>
+        </div>
+    </div>
+    
+    <p id="p_topicStatus"></p>
+    <div>
+        <button id="btn_switchCharacter">Switch Character</button>
+        <p>Send To</p>
+        <input id="inpt_topic_send" placeholder="send topic" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <p>Listen To</p>
+        <input id="inpt_topic_listen" placeholder="listen topic" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <p>
+        <button id="btn_saveTopics">Save Topics</button>
+    </div>
+    <a href="instructions.html">Read me</a>
+</div>
+
+<script>
+//state
+let eventSource;
+let recentSendTopic = "";
+let characterIndex = 0;
+
+//ping limits
+const pingCooldownInSeconds = .3;
+const pingExtendedCooldown = 10;
+const pingBurstLimit = 30;
+let pingBurstCounter = 0;
+let lastPingTime = 0;
+
+//animations
+let animator;
+let currentAnimationEndTime;
+div_stage.style.transformOrigin = "center bottom";
+
+class Character {
+    tag = "";
+    default = "";
+    pat;
+    rub;
+}
+class Animation {
+    src = "";
+    lengthInMS = 0;
+}
+
+const CHARACTERS = [
+    {
+        tag: "Link64",
+        default: "Link64.jpg",
+        pat: {src: "Link64.jpg", lengthInMS: 1200},
+        rub: {src: "Link64.jpg", lengthInMS: 700}
+    },
+    {
+        tag: "Anni",
+        default: "Anni.jpg",
+        pat: {src: "Anni.jpg", lengthInMS: 1200},
+        rub: {src: "Anni.jpg", lengthInMS: 600}
+    },
+    {
+        tag: "Kirbo",
+        default: "kirby-gif.gif",
+        pat: {src: "kirby-gif.gif", lengthInMS: 1200},
+        rub: {src: "kirby-gif.gif", lengthInMS: 600}
+    }
+]
+
+async function SendPing(type = "0"){
+    function CanPing(appliedCooldownPerSec){
+        canPing = lastPingTime + appliedCooldownPerSec * 1000 <= Date.now();
+        if (!canPing){
+            const cooldown = lastPingTime / 1000 + appliedCooldownPerSec - Date.now() / 1000;
+            console.log("waiting for cooldown: " + cooldown);
+        }
+
+        console.log("BurstLimit: " + pingBurstCounter + "/" + pingBurstLimit);
+        return canPing;
+    }
+
+    if (!CanPing(pingBurstCounter >= pingBurstLimit ? pingExtendedCooldown : pingCooldownInSeconds))
+        return;
+
+    lastPingTime = Date.now();
+    pingBurstCounter++;
+
+    const topicSendValue = inpt_topic_send.value.trim();
+    const topicListenValue = inpt_topic_listen.value.trim();
+
+    if (topicSendValue == "")
+        return;
+
+    if (topicListenValue != "")
+        SaveTopicsIfLegal(topicSendValue, topicListenValue);
+
+    //call ntfy
+    try{
+        const response = await fetch("https://ntfy.sh/" + encodeURIComponent(topicSendValue), {
+            method: "POST",
+            body: type,
+            headers: { Title: "Ping" }
+        });
+        console.log(response.ok, response.status);
+        return response.ok;
+    }
+    catch(err){
+        console.log(err.message);
+        p_topicStatus.textContent = err.name;
+    }
+}
+
+function StartCharacterAnimation(animation, type){
+    currentAnimationEndTime = Date.now() + animation.lengthInMS;
+    img_char.src = animation.src;
+    animationDuration = 200;
+    switch(type){
+        case "pat": 
+            img_hand.style.opacity = 1;
+            break;
+        case "rub":
+            animationDuration = 150;
+    }
+    
+    animator?.cancel();
+    animator = div_stage.animate([{ transform: "scaleY(1)" }, { transform: "scaleY(0.8)" }, { transform: "scaleY(1)" }],
+    { duration: animationDuration, iterations: Infinity, easing: "ease-in-out" });
+    
+    setTimeout(EndCharacterAnimation, animation.lengthInMS);
+}
+function EndCharacterAnimation(){
+    if (currentAnimationEndTime < Date.now() + 100){
+        img_char.src = CHARACTERS[characterIndex].default;
+        img_hand.style.opacity = 0;
+        animator?.cancel();
+    }
+}
+
+function OnPing(data){
+    console.log("Got Ping: " + data.id + " - " + data.time + " - " + data.message);
+
+
+}
+function AssignPingEventListener(topicValue){
+    if (eventSource) eventSource.close();
+    if (!topicValue) return;
+
+    eventSource = new EventSource("https://ntfy.sh/" + encodeURIComponent(topicValue) + "/sse");
+    eventSource.onmessage = event => OnPing(JSON.parse(event.data));
+    eventSource.onerror = err => p_topicStatus.textContent = err.message;
+}
+function SaveTopicsIfLegal(topicSendValue, topicListenValue){
+    //save topic in browser & update eventsource
+    if (IsInputTopicLegal(topicSendValue))
+        localStorage.setItem("topic_send", topicSendValue);
+    if (IsInputTopicLegal(topicListenValue)){
+        localStorage.setItem("topic_listen", topicListenValue);
+        AssignPingEventListener(topicListenValue);
+    }
+}
+function IsInputTopicLegal(input){
+    const valid = /^[A-Za-z0-9_-]{0,64}$/.test(input);
+    if (!valid) {
+        p_topicStatus.textContent = "Topics only allow (A-Z, a-z, 0-9, _, -)!"
+        return false;
+    }
+    return true;
+}
+
+btn_ping_top.onclick = async () => {
+    StartCharacterAnimation(CHARACTERS[characterIndex].pat, "pat");
+    //p_topicStatus.textContent = (await SendPing("pat")) ? "Sent" : "Interupted";
+};
+btn_ping_bottom.onclick = async () => {
+    StartCharacterAnimation(CHARACTERS[characterIndex].rub, "rub");
+    //p_topicStatus.textContent = (await SendPing("rub")) ? "Sent" : "Interupted (" + pingBurstCounter + "/" + pingBurstLimit + ")";
+}
+btn_saveTopics.onclick = () => {
+    SaveTopicsIfLegal(inpt_topic_send.value.trim(), inpt_topic_listen.value.trim());
+};
+btn_switchCharacter.onclick = () => {
+    characterIndex++;
+    if (characterIndex >= CHARACTERS.length) 
+        characterIndex = 0;
+
+    p_characterTag.textContent = CHARACTERS[characterIndex].tag;
+    img_char.src = CHARACTERS[characterIndex].default;
+    localStorage.setItem("characterIndex", characterIndex);
+}
+
+//insert saved values
+inpt_topic_send.value = localStorage.getItem("topic_send") || "";
+inpt_topic_listen.value = localStorage.getItem("topic_listen") || "";
+characterIndex = Number.parseInt(localStorage.getItem("characterIndex")) || 0;
+img_char.src = CHARACTERS[characterIndex].default;
+
+p_characterTag.textContent = CHARACTERS[characterIndex].tag;
+img_char.src = CHARACTERS[characterIndex].default;
+img_hand.style.opacity = 0;
+
+if (inpt_topic_listen.value.trim() != "")
+    AssignPingEventListener(inpt_topic_listen.value.trim());
+</script>
+
+</body>
+</html>

@@ -1,0 +1,64 @@
+html {
+    font-family: monospace;
+    font-size: large;
+}
+
+body {
+    background-color: #666666;
+}
+
+div { 
+    background-color: #777777;
+    text-align: center;
+}
+
+button {
+    cursor: pointer;
+}
+
+.crop{
+    --w: min(80vw, 400px);
+
+    width: var(--w);
+    max-height: var(--w);
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    overflow: hidden;
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    transition: transform .15s ease;
+    touch-action: manipulation;                 /* kein Doppeltipp-Zoom, schnelleres Tippen */
+    -webkit-tap-highlight-color: transparent;   /* kein graues Aufblitzen auf Mobilgeräten */
+    user-select: none;
+
+    background-color: white;
+}
+.crop:has(.spot:active){
+    transform: scale(0.94);
+}
+.stage {
+    position: relative;
+    flex-shrink: 0;
+}
+.stage #img_char {
+    width: 100%;
+    display: block;
+    background: transparent;
+}
+.stage #img_hand {
+    position: absolute;
+    inset: 0;
+    margin: 0 auto auto auto;
+    width: 13rem;
+    height: 13rem;
+    background: transparent;
+}
+.spot {
+    position: absolute;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
